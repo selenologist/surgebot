@@ -12,4 +12,5 @@ numpy==1.26.1
 pycparser==2.21
 soundfile==0.12.1
 yarl==1.9.2
+mido==1.3.0
 surgepy @ file:///path/to/surge/src/surge-python
