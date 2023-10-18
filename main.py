@@ -35,9 +35,8 @@ client = discord.Client(intents=intents)
 
 surge_version_string = "||Version: " + surgepy.getVersion() + "||"
 
-# we really just want to not stall the network task with our cpu,
-# but ok let's assume we have a 4-thread cpu
-pool = ProcessPoolExecutor(max_workers=3)
+# we really just want to not stall the network task with our cpu-bound rendering
+pool = ProcessPoolExecutor(max_workers=2)
 
 ## program
 
@@ -57,11 +56,11 @@ def surge_patch_to_flac(label, patch_path):
     pos = 0;
     hold = math.ceil(SECONDS_ON * s.getSampleRate() / s.getBlockSize())
     silence = math.ceil(SECONDS_OFF * s.getSampleRate() / s.getBlockSize())
-   
+
     # settle for the silence interval
     s.processMultiBlock(buf, pos, silence)
     pos = pos + silence
-   
+
     for i in range(OCTAVES):
         note = ROOT_NOTE + i * 12
         # Play note on channel 0 at velcity 127 with 0 detune
@@ -73,7 +72,7 @@ def surge_patch_to_flac(label, patch_path):
         s.releaseNote(0, note, 0)
         s.processMultiBlock(buf, pos, silence)
         pos = pos + silence
-    
+
     # run for 7x the silence interval
     s.processMultiBlock(buf, pos, silence*7)
     pos = pos + silence # (unnecessary)
@@ -109,21 +108,24 @@ async def on_message(message):
         filenames = ", ".join([a.filename for a in fxp_attachments])
         message = await message.channel.send('Generating recording for ['+filenames+'], please wait.', reference=message)
 
-        fxp_files = []
-        fxp_files_fut = []
-        for attachment in fxp_attachments:
-            tmp = tempfile.NamedTemporaryFile()
-            fxp_files_fut.append(attachment.save(tmp.name))
-            fxp_files.append([attachment.filename.removesuffix(".fxp")+".flac", tmp])
-        fxp_files_fut = await asyncio.gather(*fxp_files_fut)
+        try:
+            fxp_files = []
+            fxp_files_fut = []
+            for attachment in fxp_attachments:
+                tmp = tempfile.NamedTemporaryFile()
+                fxp_files_fut.append(attachment.save(tmp.name))
+                fxp_files.append([attachment.filename.removesuffix(".fxp")+".flac", tmp])
+            fxp_files_fut = await asyncio.gather(*fxp_files_fut)
 
-        #message, _fxp_files_fut = await asyncio.gather(message, fxp_files_fut)
-   
-        flac_futs = [pool.submit(surge_patch_to_flac, f[0], f[1].name) for f in fxp_files]
-        flac_files = [await asyncio.wrap_future(fut) for fut in flac_futs]
-        
-        await message.edit(content=surge_version_string,
-                           attachments=[discord.File(io.BytesIO(flac), filename=label) for label, flac in flac_files])
+            #message, _fxp_files_fut = await asyncio.gather(message, fxp_files_fut)
+
+            flac_futs = [pool.submit(surge_patch_to_flac, f[0], f[1].name) for f in fxp_files]
+            flac_files = [await asyncio.wrap_future(fut) for fut in flac_futs]
+
+            await message.edit(content=surge_version_string,
+                               attachments=[discord.File(io.BytesIO(flac), filename=label) for label, flac in flac_files])
+        except Exception as e:
+            await message.edit(content="Sorry, an error occurred. Please try again later.\nDetails:\n```python\n{}\n```".format(e))
 
 # get token from environment variable
 client.run(os.environ["SURGEBOT_DISCORD_TOKEN"])
