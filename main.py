@@ -52,7 +52,6 @@ def populate_midi_commands():
     for midi in glob.glob("midis/*.mid"):
         command = "!" + midi.removeprefix("midis/").removesuffix(".mid").lower().replace(' ', '_')
         midi_commands[command] = midi
-        print("Registered", command, "to", midi)
 populate_midi_commands()
 
 ### program
@@ -135,8 +134,12 @@ def surge_patch_to_flac(label, patch_path, midi_path):
     else:
         buf = default_octaves_note_generator(s)
 
+    # normalize and transpose buffer
+    abs_max = max(abs(buf.min()), abs(buf.max()))
+    buf = np.transpose(buf / abs_max)
+
     flac_file = io.BytesIO()
-    soundfile.write(flac_file, np.transpose(buf), int(s.getSampleRate()), subtype='PCM_16', format='FLAC')
+    soundfile.write(flac_file, buf, int(s.getSampleRate()), subtype='PCM_16', format='FLAC')
 
     return label, flac_file.getvalue()
 
@@ -174,7 +177,7 @@ async def on_message(message):
             midi_path = midi_commands[first_word]
 
         filenames = ", ".join([a.filename for a in fxp_attachments])
-        message = await message.channel.send('Generating recording for ['+filenames+'], please wait.', reference=message)
+        message = await message.channel.send('Processing ['+filenames+'], please wait.', reference=message)
 
         try:
             # download all FXPs from message concurrently, but wait for all of them to finish before proceeding
