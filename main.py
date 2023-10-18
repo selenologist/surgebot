@@ -168,7 +168,7 @@ async def on_message(message):
     if message.content.startswith("!surgebot midi"):
         if "repop" in message.content:
             populate_midi_commands()
-        await message.channel.send(", ".join(midi_commands.keys()), reference=message)
+        await message.channel.send(", ".join(sorted(midi_commands.keys())), reference=message)
 
     fxp_attachments = []
     for attachment in message.attachments:
