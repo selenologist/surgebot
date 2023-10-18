@@ -88,7 +88,7 @@ def default_octaves_note_generator(s):
 
     return buf
 
-def midi_note_generator(s, midi_path):
+def midi_note_generator(s, midi_path, mpe):
     midi_file = mido.MidiFile(midi_path)
 
     blocks_per_second = s.getSampleRate() / s.getBlockSize()
@@ -108,9 +108,17 @@ def midi_note_generator(s, midi_path):
                 block += blocks
                 time += msg.time
         if msg.type == 'note_on' and msg.velocity != 0:
-            s.playNote(0, msg.note, msg.velocity, 0)
-        if msg.type == 'note_off' or (msg.type == 'note_on' and msg.velocity == 0):
-            s.releaseNote(0, msg.note, msg.velocity)
+            s.playNote(msg.channel if mpe else 0, msg.note, msg.velocity, 0)
+        elif msg.type == 'note_off' or (msg.type == 'note_on' and msg.velocity == 0):
+            s.releaseNote(msg.channel if mpe else 0, msg.note, msg.velocity)
+        elif msg.type == 'pitchwheel':
+            s.pitchBend(msg.channel if mpe else 0, msg.pitch)
+        elif msg.type == 'aftertouch':
+            s.channelAftertouch(msg.channel if mpe else 0, msg.value)
+        elif msg.type == 'polytouch':
+            s.polyAftertouch(msg.channel if mpe else 0, msg.note, msg.value)
+        elif msg.type == 'control_change':
+            s.channelController(msg.channel if mpe else 0, msg.control, msg.value)
 
     if block < block_count:
         s.processMultiBlock(buf, block, block_count - block)
@@ -118,8 +126,10 @@ def midi_note_generator(s, midi_path):
     return buf
 
 # entry point of separate process
-def surge_patch_to_flac(label, patch_path, midi_path):
+def surge_patch_to_flac(label, patch_path, midi_path, mpe):
     s = surgepy.createSurge(SAMPLE_RATE)
+
+    s.mpeEnabled = mpe
 
     if SAMPLE_RATE != s.getSampleRate():
         print("requested sample rate", SAMPLE_RATE, " but got ", s.getSampleRate(), " instead.")
@@ -130,13 +140,13 @@ def surge_patch_to_flac(label, patch_path, midi_path):
 
     buf = None
     if midi_path:
-        buf = midi_note_generator(s, midi_path)
+        buf = midi_note_generator(s, midi_path, mpe)
     else:
         buf = default_octaves_note_generator(s)
 
     # normalize and transpose buffer
     abs_max = max(abs(buf.min()), abs(buf.max()))
-    buf = np.transpose(buf / abs_max)
+    buf = np.transpose(buf / (abs_max * 1.5))
 
     flac_file = io.BytesIO()
     soundfile.write(flac_file, buf, int(s.getSampleRate()), subtype='PCM_16', format='FLAC')
@@ -171,6 +181,8 @@ async def on_message(message):
         jump_url = message.jump_url
         midi_path = None # never set directly from user input, comes from `midi_commands`
 
+        mpe_enabled = "!mpe" in message.content
+
         # check first block delimited by whitespace for a midi command
         first_word = message.content.split(maxsplit=1)[0] if message.content else None
         if first_word in midi_commands:
@@ -190,7 +202,7 @@ async def on_message(message):
             fxp_files_fut = await asyncio.gather(*fxp_files_fut)
 
             # submit patches to worker processes for rendering
-            flac_futs = [pool.submit(surge_patch_to_flac, f[0], f[1].name, midi_path) for f in fxp_files]
+            flac_futs = [pool.submit(surge_patch_to_flac, f[0], f[1].name, midi_path, mpe_enabled) for f in fxp_files]
             # wait for all patches to finish rendering
             flac_files = [await asyncio.wrap_future(fut) for fut in flac_futs]
 
