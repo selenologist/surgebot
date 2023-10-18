@@ -92,12 +92,12 @@ def default_octaves_note_generator(s):
 def midi_note_generator(s, midi_path):
     midi_file = mido.MidiFile(midi_path)
 
-    time = 0
-    block = 0
-
     blocks_per_second = s.getSampleRate() / s.getBlockSize()
     block_count = math.ceil(blocks_per_second * MAX_TIME)
     buf = s.createMultiBlock(block_count)
+
+    time = 0
+    block = 0
 
     for msg in midi_file:
         if time + msg.time > MAX_TIME:
@@ -152,17 +152,10 @@ async def on_message(message):
     if message.author == client.user:
         return
 
-    if "surgebot must die" in message.content:
-        await client.close()
-        sys.exit(0)
-
-    get_midi_list = lambda: ", ".join(midi_commands.keys())
-    if message.content == "!surgebot midi repop":
-        populate_midi_commands()
-        await message.channel.send(get_midi_list(), reference=message)
-    if message.content == "!surgebot midi":
-        populate_midi_commands()
-        await message.channel.send(get_midi_list(), reference=message)
+    if message.content.startswith("!surgebot midi"):
+        if "repop" in message.content:
+            populate_midi_commands()
+        await message.channel.send(", ".join(midi_commands.keys()), reference=message)
 
     fxp_attachments = []
     for attachment in message.attachments:
