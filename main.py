@@ -20,6 +20,9 @@ from concurrent.futures import ProcessPoolExecutor
 
 ## tuneables
 
+MESSAGE_DELETION_EMOJI = '🗑️'
+MESSAGE_DELETION_EMOJI_TIME = 60
+
 # Simple octaves default note generator configuration
 
 SAMPLE_RATE = 48000
@@ -160,9 +163,26 @@ async def on_ready():
     print(f'We have logged in as {client.user}')
 
 @client.event
+async def on_reaction_add(reaction, user):
+    if reaction.me:
+        return
+
+    if reaction.emoji == MESSAGE_DELETION_EMOJI and reaction.message.author == client.user:
+        await reaction.message.delete()
+
+pending_removal = set()
+async def remove_deletion_emoji_later(message):
+    await asyncio.sleep(MESSAGE_DELETION_EMOJI_TIME)
+    await message.remove_reaction(MESSAGE_DELETION_EMOJI, client.user)
+def queue_remove_deletion_emoji_later(message):
+    task = client.loop.create_task(remove_deletion_emoji_later(message))
+    pending_removal.add(task)
+    task.add_done_callback(pending_removal.discard)
+
+@client.event
 async def on_message(message):
     # ignore our own messages
-    if message.author == client.user:
+    if message.author == client.user or message.content.startswith("!no"):
         return
 
     if message.content.startswith("!surgebot midi"):
@@ -189,7 +209,11 @@ async def on_message(message):
             midi_path = midi_commands[first_word]
 
         filenames = ", ".join([a.filename for a in fxp_attachments])
-        message = await message.channel.send('Processing ['+filenames+'], please wait.', reference=message)
+        message = await message.channel.send('Processing ['+filenames+'], please wait.',
+                                             reference = message, mention_author = False)
+
+        await message.add_reaction(MESSAGE_DELETION_EMOJI)
+        queue_remove_deletion_emoji_later(message)
 
         try:
             # download all FXPs from message concurrently, but wait for all of them to finish before proceeding
