@@ -190,10 +190,17 @@ async def on_message(message):
             populate_midi_commands()
         await message.channel.send(", ".join(sorted(midi_commands.keys())), reference=message)
 
+    audio_attachments = False
     fxp_attachments = []
     for attachment in message.attachments:
         if attachment.filename.endswith(".fxp"):
             fxp_attachments.append(attachment)
+        if attachment.filename.endswith(".ogg")  or \
+           attachment.filename.endswith(".mp3")  or \
+           attachment.filename.endswith(".wav")  or \
+           attachment.filename.endswith(".flac") or \
+           attachment.filename.endswith(".opus"):
+            audio_attachments = True
 
     if fxp_attachments:
         fxp_attachments = fxp_attachments[:4] # limit to the first 4 attachments
@@ -207,6 +214,9 @@ async def on_message(message):
         first_word = message.content.split(maxsplit=1)[0] if message.content else None
         if first_word in midi_commands:
             midi_path = midi_commands[first_word]
+
+        if audio_attachments and not midi_path:
+            return # skip processing when the user already supplied a file
 
         filenames = ", ".join([a.filename for a in fxp_attachments])
         message = await message.channel.send('Processing ['+filenames+'], please wait.',
