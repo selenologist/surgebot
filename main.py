@@ -128,6 +128,12 @@ def midi_note_generator(s, midi_path, mpe):
 
     return buf
 
+def verify_fxp_plugin_id(path, expected_id):
+    """Check if FXP file has the expected plugin ID"""
+    with open(path, 'rb') as f:
+        h = f.read(20)
+        return len(h) >= 20 and h[:4] == b'CcnK' and h[8:12] == b'FxCk' and h[16:20].decode('ascii', errors='replace') == expected_id
+
 # entry point of separate process
 def surge_patch_to_flac(label, patch_path, midi_path, mpe):
     s = surgepy.createSurge(SAMPLE_RATE)
@@ -235,13 +241,19 @@ async def on_message(message):
                 fxp_files.append([attachment.filename.removesuffix(".fxp")+".flac", tmp])
             fxp_files_fut = await asyncio.gather(*fxp_files_fut)
 
+            # is this FXP really created by Surge XT?
+            for f in fxp_files:
+                if not verify_fxp_plugin_id(f[1].name, "cj3s"):
+                    fxp_files.remove(f)
+            
             # submit patches to worker processes for rendering
             flac_futs = [pool.submit(surge_patch_to_flac, f[0], f[1].name, midi_path, mpe_enabled) for f in fxp_files]
             # wait for all patches to finish rendering
             flac_files = [await asyncio.wrap_future(fut) for fut in flac_futs]
 
-            await message.edit(content=surge_version_string,
-                               attachments=[discord.File(io.BytesIO(flac), filename=label) for label, flac in flac_files])
+            if flac_files:
+                await message.edit(content=surge_version_string,
+                                   attachments=[discord.File(io.BytesIO(flac), filename=label) for label, flac in flac_files])
         except Exception as e:
             await message.edit(content="Sorry, an error occurred. Please try again later.\nDetails:\n```python\n{}\n```".format(e))
 
